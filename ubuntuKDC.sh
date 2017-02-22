@@ -14,9 +14,12 @@ service krb5-admin-server start
 # #################################
 
 # Create krb5.conf file
-HOSTNAME=`hostname`
-REALM="EXAMPLE.COM"
-echo "Creating krb5.conf file, assuming KDC host is ${HOSTNAME} and realm is ${REALM}" 
+export host=$(hostname -f)
+export realm=${realm:-EXAMPLE.COM}
+export domain=${domain:-example.com}
+export kdcpassword=${kdcpassword:-BadPass#1}
+
+echo "Creating krb5.conf file, assuming KDC host is ${host} and realm is ${realm}"
 cat >/etc/krb5.conf <<EOF
 [logging]
  default = FILE:/var/log/krb5libs.log
@@ -24,7 +27,7 @@ cat >/etc/krb5.conf <<EOF
  admin_server = FILE:/var/log/kadmind.log
 
 [libdefaults]
- default_realm = ${REALM}
+ default_realm = ${realm}
  dns_lookup_realm = false
  dns_lookup_kdc = false
  ticket_lifetime = 24h
@@ -32,33 +35,37 @@ cat >/etc/krb5.conf <<EOF
  forwardable = true
 
 [realms]
- ${REALM} = {
-  kdc = ${HOSTNAME}
-  admin_server = ${HOSTNAME}
+ ${realm} = {
+  kdc = ${host}
+  admin_server = ${host}
  }
 
 [domain_realm]
- .${HOSTNAME} = ${REALM}
- ${HOSTNAME} = ${REALM}
+ .${host} = ${realm}
+ ${host} = ${realm}
 EOF
 
-echo "Creating kdc.conf file, assuming realm is ${REALM}"
+echo "Creating kdc.conf file, assuming realm is ${realm}"
 cat >/etc/krb5kdc/kadm5.acl <<EOF
-*/admin@${REALM}	*
+*/admin@${realm}	*
 EOF
+
+echo $kdcpassword > passwd
+echo $kdcpassword >> passwd
 
 # Create KDC database
 echo "Created KDC database, this could take some time"
 echo "HRNGDEVICE=/dev/uransom" > /etc/default/rng-tools
 /etc/init.d/rng-tools start
 mkdir -p /etc/krb5kdc
-kdb5_util create -s -P hadoop
+kdb5_util create -s < passwd
 
 # Create admistrative user
 echo "Creating administriative account:"
 echo "  principal:  admin/admin"
-echo "  password:   hadoop"
-kadmin.local -q 'addprinc -pw hadoop admin/admin'
+echo "  password:   $kdcpassword"
+kadmin.local -q "addprinc admin/admin" < passwd
+rm -f passwd
 
 update-rc.d krb5-kdc defaults
 update-rc.d krb5-admin-server defaults
@@ -67,4 +74,3 @@ update-rc.d krb5-admin-server defaults
 echo "Starting services"
 service krb5-kdc start
 service krb5-admin-server start
-
